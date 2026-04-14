@@ -61,19 +61,18 @@ async def _check_spreadsheet(spreadsheet_id: str) -> tuple[list[str], list[str]]
     return [current_sheets[sid] for sid in new_ids], [previous[sid] for sid in deleted_ids]
 
 
-async def _notify_users(
+async def _notify_user(
     bot: "Bot",
-    user_ids: list[int],
-    spreadsheet_name: str,
+    user_id: int,
+    display_name: str,
     new_titles: list[str],
 ) -> None:
     bullet_list = "\n".join(f"  • {t}" for t in new_titles)
-    text = f"📄 New sheets added in <b>{spreadsheet_name}</b>:\n\n{bullet_list}"
-    for user_id in user_ids:
-        try:
-            await bot.send_message(user_id, text, parse_mode="HTML")
-        except Exception as e:
-            logger.warning("Failed to notify user %d: %s", user_id, e)
+    text = f"📄 New sheets added in <b>{display_name}</b>:\n\n{bullet_list}"
+    try:
+        await bot.send_message(user_id, text, parse_mode="HTML")
+    except Exception as e:
+        logger.warning("Failed to notify user %d: %s", user_id, e)
 
 
 async def polling_loop(bot: "Bot") -> None:
@@ -121,11 +120,10 @@ async def _run_cycle(bot: "Bot") -> None:
 
     for sheet_info in all_sheets:
         spreadsheet_id = sheet_info["spreadsheet_id"]
-        spreadsheet_name = sheet_info["spreadsheet_name"]
 
         # Collect subscribers whose interval has elapsed
-        due: list[int] = [
-            sub["user_id"]
+        due = [
+            sub
             for sub in sheet_info["subscribers"]
             if now - _last_check.get((sub["user_id"], spreadsheet_id), 0.0)
             >= sub["polling_interval"]
@@ -137,8 +135,9 @@ async def _run_cycle(bot: "Bot") -> None:
         new_titles, _ = await _check_spreadsheet(spreadsheet_id)
 
         ts = time.monotonic()
-        for uid in due:
-            _last_check[(uid, spreadsheet_id)] = ts
+        for sub in due:
+            _last_check[(sub["user_id"], spreadsheet_id)] = ts
 
         if new_titles:
-            await _notify_users(bot, due, spreadsheet_name, new_titles)
+            for sub in due:
+                await _notify_user(bot, sub["user_id"], sub["display_name"], new_titles)

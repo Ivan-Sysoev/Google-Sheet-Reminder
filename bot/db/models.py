@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS tracked_sheets (
     user_id INTEGER NOT NULL,
     spreadsheet_id TEXT NOT NULL,
     spreadsheet_name TEXT NOT NULL,
+    alias TEXT,
     polling_interval INTEGER NOT NULL DEFAULT {DEFAULT_POLLING_INTERVAL},
     UNIQUE(user_id, spreadsheet_id),
     FOREIGN KEY (user_id) REFERENCES users(id)

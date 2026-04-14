@@ -1,15 +1,24 @@
 """
-Telegram bot command handlers.
+Telegram bot command and reply-keyboard handlers.
 """
 
 import logging
+from typing import Optional
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from bot.config import DEFAULT_POLLING_INTERVAL, MIN_POLLING_INTERVAL
 from bot.db import crud
+from bot.handlers.keyboards import (
+    format_interval,
+    list_keyboard,
+    main_keyboard,
+    sheet_detail_keyboard,
+)
 from bot.services.sheets_service import (
     InvalidURLError,
     SheetsAccessError,
@@ -22,36 +31,19 @@ router = Router()
 
 
 # ---------------------------------------------------------------------------
-# /start
+# FSM: "➕ Add Sheet" button flow
 # ---------------------------------------------------------------------------
 
-@router.message(CommandStart())
-async def cmd_start(message: Message) -> None:
-    await crud.upsert_user(message.from_user.id)
-    await message.answer(
-        "👋 Hello! I monitor Google Sheets for new tabs and notify you.\n\n"
-        "Commands:\n"
-        "  /add <url> — track a spreadsheet\n"
-        "  /remove <url> — stop tracking\n"
-        "  /list — show tracked spreadsheets\n"
-        f"  /set_interval <url> <seconds> — set polling interval per spreadsheet (default: {DEFAULT_POLLING_INTERVAL}s)"
-    )
+class AddSheet(StatesGroup):
+    waiting_for_url = State()
 
 
 # ---------------------------------------------------------------------------
-# /add
+# Shared helper: process add-sheet request
 # ---------------------------------------------------------------------------
 
-@router.message(Command("add"))
-async def cmd_add(message: Message) -> None:
+async def _do_add(message: Message, url: str, alias: Optional[str]) -> None:
     user_id = message.from_user.id
-    args = (message.text or "").split(maxsplit=1)
-
-    if len(args) < 2 or not args[1].strip():
-        await message.answer("Usage: /add <google_sheet_url>")
-        return
-
-    url = args[1].strip()
     await crud.upsert_user(user_id)
     await message.answer("⏳ Checking access to the spreadsheet…")
 
@@ -60,121 +52,213 @@ async def cmd_add(message: Message) -> None:
     except InvalidURLError:
         await message.answer(
             "❌ Invalid URL. Please send a valid Google Sheets link.\n"
-            "Example: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit"
+            "Example:\n<code>https://docs.google.com/spreadsheets/d/ID/edit</code>",
+            reply_markup=main_keyboard(),
         )
         return
     except SheetsAccessError as e:
         await message.answer(
             "❌ Cannot access the spreadsheet.\n"
-            "Make sure you shared it with the service account.\n\n"
-            f"Details: {e}"
+            "Make sure it is set to <b>Anyone with the link → Viewer</b>.\n\n"
+            f"Details: {e}",
+            reply_markup=main_keyboard(),
         )
         return
 
-    inserted = await crud.add_tracked_sheet(user_id, spreadsheet_id, title)
+    inserted = await crud.add_tracked_sheet(
+        user_id, spreadsheet_id, title, alias=alias
+    )
+
+    display_name = alias or title
 
     if not inserted:
-        await message.answer(f"⚠️ <b>{title}</b> is already being tracked.", parse_mode="HTML")
+        await message.answer(
+            f"⚠️ <b>{display_name}</b> is already being tracked.",
+            reply_markup=main_keyboard(),
+        )
         return
 
-    # Save initial snapshot so the first poll doesn't flood with "new" sheets
     await crud.save_snapshot(spreadsheet_id, sheets)
 
     await message.answer(
-        f"✅ Now tracking <b>{title}</b>\n"
+        f"✅ Now tracking <b>{display_name}</b>\n"
         f"Current tabs: {len(sheets)}\n"
-        f"Polling interval: {DEFAULT_POLLING_INTERVAL}s",
-        parse_mode="HTML",
+        f"Polling every: {format_interval(DEFAULT_POLLING_INTERVAL)}",
+        reply_markup=main_keyboard(),
     )
-    logger.info("User %d added spreadsheet %s (%s)", user_id, spreadsheet_id, title)
+    logger.info("User %d added %s (alias=%s)", user_id, spreadsheet_id, alias)
 
 
 # ---------------------------------------------------------------------------
-# /remove
+# /start
+# ---------------------------------------------------------------------------
+
+@router.message(CommandStart())
+async def cmd_start(message: Message) -> None:
+    await crud.upsert_user(message.from_user.id)
+    await message.answer(
+        "👋 Hello! I monitor Google Sheets for new tabs and notify you.\n\n"
+        "<b>Commands:</b>\n"
+        "  /add <code>&lt;url&gt; [name]</code> — track a spreadsheet\n"
+        "  /remove <code>&lt;url&gt;</code> — stop tracking\n"
+        "  /list — show tracked spreadsheets\n"
+        f"  /set_interval <code>&lt;url or name&gt; &lt;seconds&gt;</code> — set polling interval\n\n"
+        "Or use the buttons below 👇",
+        reply_markup=main_keyboard(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# /add <url> [optional name]
+# ---------------------------------------------------------------------------
+
+@router.message(Command("add"))
+async def cmd_add(message: Message) -> None:
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await message.answer(
+            "Usage: /add <code>&lt;url&gt; [optional name]</code>\n\n"
+            "Examples:\n"
+            "<code>/add https://docs.google.com/spreadsheets/d/ID/edit</code>\n"
+            "<code>/add https://docs.google.com/spreadsheets/d/ID/edit Q1 Report</code>"
+        )
+        return
+
+    tokens = parts[1].strip().split(maxsplit=1)
+    url = tokens[0]
+    alias = tokens[1].strip() if len(tokens) > 1 else None
+    await _do_add(message, url, alias)
+
+
+# ---------------------------------------------------------------------------
+# ➕ Add Sheet button — FSM flow (no command syntax needed)
+# ---------------------------------------------------------------------------
+
+@router.message(F.text == "➕ Add Sheet")
+async def btn_add_sheet(message: Message, state: FSMContext) -> None:
+    await state.set_state(AddSheet.waiting_for_url)
+    await message.answer(
+        "Send me the spreadsheet URL.\n"
+        "Optionally add a custom name after the URL:\n\n"
+        "<code>https://docs.google.com/spreadsheets/d/ID/edit</code>\n"
+        "<code>https://docs.google.com/spreadsheets/d/ID/edit Q1 Report</code>\n\n"
+        "Send /cancel to go back."
+    )
+
+
+@router.message(AddSheet.waiting_for_url)
+async def fsm_add_url(message: Message, state: FSMContext) -> None:
+    text = (message.text or "").strip()
+    tokens = text.split(maxsplit=1)
+    url = tokens[0]
+    alias = tokens[1].strip() if len(tokens) > 1 else None
+
+    await state.clear()
+    await _do_add(message, url, alias)
+
+
+# ---------------------------------------------------------------------------
+# /remove <url>
 # ---------------------------------------------------------------------------
 
 @router.message(Command("remove"))
 async def cmd_remove(message: Message) -> None:
-    user_id = message.from_user.id
-    args = (message.text or "").split(maxsplit=1)
-
-    if len(args) < 2 or not args[1].strip():
-        await message.answer("Usage: /remove <google_sheet_url>")
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await message.answer("Usage: /remove <code>&lt;google_sheet_url&gt;</code>")
         return
 
-    spreadsheet_id = extract_spreadsheet_id(args[1].strip())
+    spreadsheet_id = extract_spreadsheet_id(parts[1].strip())
     if spreadsheet_id is None:
         await message.answer("❌ Invalid Google Sheets URL.")
         return
 
-    removed = await crud.remove_tracked_sheet(user_id, spreadsheet_id)
+    removed = await crud.remove_tracked_sheet(message.from_user.id, spreadsheet_id)
     if removed:
-        await message.answer("✅ Spreadsheet removed from tracking.")
-        logger.info("User %d removed spreadsheet %s", user_id, spreadsheet_id)
+        await message.answer("✅ Spreadsheet removed from tracking.", reply_markup=main_keyboard())
     else:
         await message.answer("⚠️ That spreadsheet is not in your tracking list.")
 
 
 # ---------------------------------------------------------------------------
-# /list
+# /list + 📋 My Sheets button
 # ---------------------------------------------------------------------------
 
-@router.message(Command("list"))
-async def cmd_list(message: Message) -> None:
+async def _send_list(message: Message) -> None:
     sheets = await crud.get_user_tracked_sheets(message.from_user.id)
-
     if not sheets:
-        await message.answer("You have no tracked spreadsheets. Use /add to add one.")
+        await message.answer(
+            "You have no tracked spreadsheets.\nUse ➕ Add Sheet to add one.",
+            reply_markup=main_keyboard(),
+        )
         return
 
     lines = [
-        f"{i + 1}. <b>{s['spreadsheet_name']}</b> — every {s['polling_interval']}s"
+        f"{i + 1}. <b>{s['display_name']}</b> — every {format_interval(s['polling_interval'])}"
         for i, s in enumerate(sheets)
     ]
     await message.answer(
-        "📋 Your tracked spreadsheets:\n\n" + "\n".join(lines),
-        parse_mode="HTML",
+        "📋 <b>Your tracked spreadsheets:</b>\n\n" + "\n".join(lines),
+        reply_markup=list_keyboard(sheets),
     )
 
 
+@router.message(Command("list"))
+async def cmd_list(message: Message) -> None:
+    await _send_list(message)
+
+
+@router.message(F.text == "📋 My Sheets")
+async def btn_my_sheets(message: Message) -> None:
+    await _send_list(message)
+
+
 # ---------------------------------------------------------------------------
-# /set_interval
+# /set_interval <url or name> <seconds>
 # ---------------------------------------------------------------------------
 
 @router.message(Command("set_interval"))
 async def cmd_set_interval(message: Message) -> None:
     user_id = message.from_user.id
-    args = (message.text or "").split(maxsplit=2)
+    parts = (message.text or "").split(maxsplit=2)
 
-    if len(args) < 3:
+    if len(parts) < 3:
         await message.answer(
-            "Usage: /set_interval <google_sheet_url> <seconds>\n"
-            "Example: /set_interval https://docs.google.com/spreadsheets/d/ID/edit 120"
+            "Usage: /set_interval <code>&lt;url or name&gt; &lt;seconds&gt;</code>\n"
+            "Example: <code>/set_interval Q1 Report 120</code>"
         )
         return
 
-    url = args[1].strip()
-    spreadsheet_id = extract_spreadsheet_id(url)
-    if spreadsheet_id is None:
-        await message.answer("❌ Invalid Google Sheets URL.")
-        return
-
+    target = parts[1].strip()
     try:
-        interval = int(args[2].strip())
+        seconds = int(parts[2].strip())
     except ValueError:
         await message.answer("❌ Please provide a valid integer number of seconds.")
         return
 
-    if interval < MIN_POLLING_INTERVAL:
-        await message.answer(f"❌ Minimum interval is {MIN_POLLING_INTERVAL} seconds.")
+    if seconds < MIN_POLLING_INTERVAL:
+        await message.answer(f"❌ Minimum interval is {MIN_POLLING_INTERVAL}s.")
         return
 
-    updated = await crud.set_sheet_polling_interval(user_id, spreadsheet_id, interval)
+    # Resolve: try as URL first, then as name
+    if target.startswith("http"):
+        spreadsheet_id = extract_spreadsheet_id(target)
+        if spreadsheet_id is None:
+            await message.answer("❌ Invalid Google Sheets URL.")
+            return
+    else:
+        spreadsheet_id = await crud.get_spreadsheet_id_by_name(user_id, target)
+        if spreadsheet_id is None:
+            await message.answer(f"❌ No tracked spreadsheet found with name <b>{target}</b>.")
+            return
+
+    updated = await crud.set_sheet_polling_interval(user_id, spreadsheet_id, seconds)
     if not updated:
-        await message.answer("⚠️ That spreadsheet is not in your tracking list. Use /add first.")
+        await message.answer("⚠️ That spreadsheet is not in your tracking list.")
         return
 
-    await message.answer(f"✅ Polling interval set to {interval}s for this spreadsheet.")
-    logger.info(
-        "User %d set interval %ds for spreadsheet %s", user_id, interval, spreadsheet_id
+    await message.answer(
+        f"✅ Polling interval set to <code>{format_interval(seconds)}</code>.",
+        reply_markup=main_keyboard(),
     )
+    logger.info("User %d set interval %ds for %s", user_id, seconds, spreadsheet_id)

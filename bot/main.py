@@ -8,10 +8,12 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import BOT_TOKEN
 from bot.db.crud import init_db
-from bot.handlers.commands import router
+from bot.handlers.callbacks import router as callbacks_router
+from bot.handlers.commands import router as commands_router
 from bot.services.polling_service import polling_loop
 
 logging.basicConfig(
@@ -28,14 +30,17 @@ async def main() -> None:
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = Dispatcher()
-    dp.include_router(router)
+    dp = Dispatcher(storage=MemoryStorage())
+
+    # Callbacks first so inline buttons are handled before fallback text handlers
+    dp.include_router(callbacks_router)
+    dp.include_router(commands_router)
 
     polling_task = asyncio.create_task(polling_loop(bot))
 
     try:
         logger.info("Starting bot")
-        await dp.start_polling(bot, allowed_updates=["message"])
+        await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
     finally:
         polling_task.cancel()
         try:
