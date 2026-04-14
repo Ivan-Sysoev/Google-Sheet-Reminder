@@ -13,12 +13,11 @@ BOT_TOKEN: str = os.environ["BOT_TOKEN"]
 # Google Sheets
 # ---------------------------------------------------------------------------
 
-GOOGLE_CREDENTIALS_PATH: str = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
+# API key from Google Cloud Console — works for any publicly accessible spreadsheet
+GOOGLE_API_KEY: str = os.environ["GOOGLE_API_KEY"]
 
-GOOGLE_API_SCOPES: list[str] = [
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
-    "https://www.googleapis.com/auth/drive.readonly",
-]
+# Base URL for Sheets API v4
+SHEETS_API_BASE_URL: str = "https://sheets.googleapis.com/v4/spreadsheets"
 
 # ---------------------------------------------------------------------------
 # Database

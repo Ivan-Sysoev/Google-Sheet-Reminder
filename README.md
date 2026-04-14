@@ -8,7 +8,7 @@ Telegram bot that monitors Google Spreadsheets for structural changes — specif
 
 - Track multiple Google Spreadsheets per user
 - Per-URL configurable polling interval
-- Read-only access — works even with "Commenter" permission on the sheet
+- Works with any **publicly accessible** spreadsheet — no sharing required
 - Change detection by stable `sheetId` (ignores renames, catches additions)
 - Deduplication — a spreadsheet shared across users is fetched only once per cycle
 - SQLite storage, no external dependencies
@@ -87,7 +87,7 @@ All settings live in `bot/config.py` and are read from environment variables (`.
 | Variable | Default | Description |
 |---|---|---|
 | `BOT_TOKEN` | **required** | Telegram bot token from [@BotFather](https://t.me/BotFather) |
-| `GOOGLE_CREDENTIALS_PATH` | `credentials.json` | Path to Google Service Account JSON key |
+| `GOOGLE_API_KEY` | **required** | Google API key from Cloud Console (Sheets API must be enabled) |
 | `DATABASE_PATH` | `bot.db` | Path to SQLite database file |
 | `DEFAULT_POLLING_INTERVAL` | `60` | Polling interval (seconds) applied to every newly added URL |
 | `MIN_POLLING_INTERVAL` | `10` | Hard minimum a user can set via `/set_interval` |
@@ -137,28 +137,20 @@ Unique constraint: `(spreadsheet_id, sheet_id)`.
 1. Open [@BotFather](https://t.me/BotFather) → `/newbot`
 2. Follow the prompts, copy the token
 
-### 2. Create a Google Service Account
+### 2. Get a Google API Key
 
-1. Open [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services → Credentials**
-2. **Create Credentials → Service Account** → fill in a name → **Done**
-3. Open the service account → **Keys** tab → **Add Key → Create new key → JSON**
-4. Save the downloaded file as `credentials.json` in the project root
+1. Open [Google Cloud Console](https://console.cloud.google.com/)
+2. Go to **APIs & Services → Library** → enable **Google Sheets API**
+3. Go to **APIs & Services → Credentials → Create Credentials → API key**
+4. Copy the key into your `.env` as `GOOGLE_API_KEY`
 
-Enable the required APIs in **APIs & Services → Library**:
-- **Google Sheets API**
-- **Google Drive API**
+### 3. Make Sure Spreadsheets are Public
 
-### 3. Share Spreadsheets with the Service Account
+The spreadsheet must allow public access — the bot does not use any account credentials:
 
-The service account has an email like:
-```
-my-bot@my-project.iam.gserviceaccount.com
-```
+- Open the sheet → **Share → Change to anyone with the link → Viewer**
 
-For each spreadsheet you want to track:
-- Open it → **Share** → add the service account email with **Viewer** access (minimum)
-
-The bot never writes to any sheet.
+The bot is strictly read-only and never writes to any sheet.
 
 ### 4. Install and Configure
 
@@ -206,7 +198,6 @@ When new worksheets are detected:
 | Package | Purpose |
 |---|---|
 | `aiogram` | Telegram Bot API framework (async) |
-| `gspread` | Google Sheets API client |
-| `google-auth` | Google Service Account authentication |
+| `aiohttp` | Async HTTP client for Sheets API v4 requests |
 | `aiosqlite` | Async SQLite driver |
 | `python-dotenv` | `.env` file loader |

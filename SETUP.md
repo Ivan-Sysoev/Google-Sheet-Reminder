@@ -7,28 +7,27 @@
 1. Открой [@BotFather](https://t.me/BotFather) → `/newbot`
 2. Следуй инструкциям, скопируй токен
 
-### 2. Create a Google Service Account
+### 2. Get a Google API Key
 
-1. Открой [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services → Credentials**
-2. **Create Credentials → Service Account** → введи имя → **Done**
-3. Открой созданный аккаунт → вкладка **Keys** → **Add Key → Create new key → JSON**
-4. Скачанный файл сохрани как `credentials.json` в корень проекта
+Бот работает с любой **публично доступной** таблицей ("Anyone with the link can view").
+Ничего шарить не нужно — достаточно API Key.
 
-Включи API в **APIs & Services → Library**:
-- **Google Sheets API**
-- **Google Drive API**
+1. Открой [Google Cloud Console](https://console.cloud.google.com/)
+2. Создай проект (или выбери существующий)
+3. Перейди в **APIs & Services → Library**, включи **Google Sheets API**
+4. Перейди в **APIs & Services → Credentials → Create Credentials → API key**
+5. Скопируй ключ
 
-### 3. Share Spreadsheets with the Service Account
+> **Опционально:** ограничь ключ в настройках — **API restrictions → Google Sheets API**.
+> Это не обязательно, но хорошая практика.
 
-Email сервисного аккаунта выглядит так:
-```
-my-bot@my-project.iam.gserviceaccount.com
-```
+### 3. Make Sure the Spreadsheet is Public
 
-Для каждой таблицы, которую хочешь отслеживать:
-- Открой таблицу → **Share** → добавь email сервисного аккаунта с доступом **Viewer**
+Таблица должна быть открыта для просмотра без авторизации:
 
-Бот работает в read-only режиме и никогда не пишет в таблицы.
+- Открой таблицу → **Share → Change to anyone with the link → Viewer** → **Done**
+
+Приватные таблицы бот видеть не сможет.
 
 ### 4. Install and Configure
 
@@ -41,7 +40,7 @@ source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Открой .env и заполни BOT_TOKEN и GOOGLE_CREDENTIALS_PATH
+# Открой .env и заполни BOT_TOKEN и GOOGLE_API_KEY
 ```
 
 ### 5. Run Locally
@@ -94,14 +93,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-nano .env   # Заполни BOT_TOKEN и GOOGLE_CREDENTIALS_PATH
-```
-
-Не забудь скопировать `credentials.json` на сервер:
-
-```bash
-# Со своей машины
-scp ./credentials.json user@your-server-ip:/opt/sheet-bot/credentials.json
+nano .env   # Заполни BOT_TOKEN и GOOGLE_API_KEY
 ```
 
 #### 4. Создай systemd unit
@@ -184,12 +176,11 @@ bot.db
 # Сборка образа
 docker build -t sheet-bot .
 
-# Запуск (credentials.json и .env монтируются снаружи)
+# Запуск (.env монтируется снаружи, bot.db персистится через volume)
 docker run -d \
   --name sheet-bot \
   --restart unless-stopped \
   --env-file .env \
-  -v $(pwd)/credentials.json:/app/credentials.json:ro \
   -v $(pwd)/bot.db:/app/bot.db \
   sheet-bot
 ```
@@ -217,7 +208,6 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - ./credentials.json:/app/credentials.json:ro
       - ./bot.db:/app/bot.db
 ```
 
@@ -253,11 +243,10 @@ docker compose up -d --build
 
 ## Security Checklist
 
-- `credentials.json` и `.env` добавлены в `.gitignore` — не коммить их в репозиторий
-- На сервере ограничь права на эти файлы:
+- `.env` добавлен в `.gitignore` — не коммить его в репозиторий
+- На сервере ограничь права на файл с переменными:
   ```bash
   chmod 600 /opt/sheet-bot/.env
-  chmod 600 /opt/sheet-bot/credentials.json
   ```
 - Запускай бота от непривилегированного пользователя (не `root`)
-- Для Service Account используй минимально необходимые права — только **Viewer** на нужных таблицах
+- В Google Cloud Console ограничь API Key — **API restrictions → Google Sheets API**

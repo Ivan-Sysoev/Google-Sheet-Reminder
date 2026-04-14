@@ -1,4 +1,5 @@
 .env
+.env.example
 credentials.json
 bot.db
 __pycache__/
