@@ -1,4 +1,7 @@
 import os
+from pathlib import Path
+
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -26,20 +29,16 @@ SHEETS_API_BASE_URL: str = "https://sheets.googleapis.com/v4/spreadsheets"
 DATABASE_PATH: str = os.getenv("DATABASE_PATH", "bot.db")
 
 # ---------------------------------------------------------------------------
-# Polling
+# Polling — loaded from polling_config.yaml
 # ---------------------------------------------------------------------------
 
-# Default polling interval (seconds) applied to every newly added spreadsheet URL
-DEFAULT_POLLING_INTERVAL: int = 60
+_POLLING_CONFIG_PATH = Path(__file__).parent.parent / "polling_config.yaml"
 
-# Hard minimum a user can set via /set_interval
-MIN_POLLING_INTERVAL: int = 10
+with open(_POLLING_CONFIG_PATH) as _f:
+    _polling = yaml.safe_load(_f)["polling"]
 
-# Floor for the global cycle sleep so we never spin too fast even with many sheets
-MIN_CYCLE_SLEEP: int = 10
-
-# Sleep duration when no spreadsheets are tracked at all
-IDLE_SLEEP: int = 60
-
-# Delay (seconds) before the first polling cycle after bot startup
-POLLING_STARTUP_DELAY: int = 2
+DEFAULT_POLLING_INTERVAL: int = _polling["default_interval"]
+MIN_POLLING_INTERVAL: int     = _polling["min_interval"]
+MIN_CYCLE_SLEEP: int          = _polling["min_cycle_sleep"]
+IDLE_SLEEP: int               = _polling["idle_sleep"]
+POLLING_STARTUP_DELAY: int    = _polling["startup_delay"]

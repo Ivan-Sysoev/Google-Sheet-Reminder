@@ -1,9 +1,10 @@
 .env
-.env.example
 credentials.json
-bot.db
+*.db
 __pycache__/
 *.py[cod]
 .venv/
+venv/
 *.egg-info/
 dist/
+.DS_Store

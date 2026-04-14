@@ -1,0 +1,15 @@
+polling:
+  # Interval (seconds) applied to every newly added spreadsheet URL
+  default_interval: 60
+
+  # Hard minimum a user can set via /set_interval or buttons
+  min_interval: 10
+
+  # Floor for global cycle sleep — prevents spinning too fast
+  min_cycle_sleep: 10
+
+  # Sleep duration when no spreadsheets are tracked at all
+  idle_sleep: 60
+
+  # Seconds to wait after bot startup before the first polling cycle
+  startup_delay: 2
