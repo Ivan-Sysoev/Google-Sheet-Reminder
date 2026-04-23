@@ -29,10 +29,13 @@ logger = logging.getLogger(__name__)
 _last_check: dict[tuple[int, str], float] = {}
 
 
-async def _check_spreadsheet(spreadsheet_id: str) -> tuple[list[str], list[str]]:
+_SHEETS_URL = "https://docs.google.com/spreadsheets/d/{sid}/edit#gid={gid}"
+
+
+async def _check_spreadsheet(spreadsheet_id: str) -> tuple[list[tuple[int, str]], list[str]]:
     """
     Fetch current state and diff against stored snapshot.
-    Returns (new_sheet_titles, deleted_sheet_titles).
+    Returns (new_sheets, deleted_sheet_titles) where new_sheets is list of (sheet_id, title).
     Persists updated snapshot on any change.
     """
     try:
@@ -58,19 +61,23 @@ async def _check_spreadsheet(spreadsheet_id: str) -> tuple[list[str], list[str]]
                 [previous[sid] for sid in deleted_ids],
             )
 
-    return [current_sheets[sid] for sid in new_ids], [previous[sid] for sid in deleted_ids]
+    return [(sid, current_sheets[sid]) for sid in new_ids], [previous[sid] for sid in deleted_ids]
 
 
 async def _notify_user(
     bot: "Bot",
     user_id: int,
     display_name: str,
-    new_titles: list[str],
+    spreadsheet_id: str,
+    new_sheets: list[tuple[int, str]],
 ) -> None:
-    bullet_list = "\n".join(f"  • {t}" for t in new_titles)
-    text = f"📄 New sheets added in <b>{display_name}</b>:\n\n{bullet_list}"
+    lines = [
+        f'  • <a href="{_SHEETS_URL.format(sid=spreadsheet_id, gid=gid)}">{title}</a>'
+        for gid, title in new_sheets
+    ]
+    text = f"📄 New sheets added in <b>{display_name}</b>:\n\n" + "\n".join(lines)
     try:
-        await bot.send_message(user_id, text, parse_mode="HTML")
+        await bot.send_message(user_id, text, parse_mode="HTML", disable_notification=False, disable_web_page_preview=True)
     except Exception as e:
         logger.warning("Failed to notify user %d: %s", user_id, e)
 
@@ -132,12 +139,12 @@ async def _run_cycle(bot: "Bot") -> None:
         if not due:
             continue
 
-        new_titles, _ = await _check_spreadsheet(spreadsheet_id)
+        new_sheets, _ = await _check_spreadsheet(spreadsheet_id)
 
         ts = time.monotonic()
         for sub in due:
             _last_check[(sub["user_id"], spreadsheet_id)] = ts
 
-        if new_titles:
+        if new_sheets:
             for sub in due:
-                await _notify_user(bot, sub["user_id"], sub["display_name"], new_titles)
+                await _notify_user(bot, sub["user_id"], sub["display_name"], spreadsheet_id, new_sheets)
