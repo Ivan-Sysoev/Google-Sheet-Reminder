@@ -29,6 +29,12 @@ SHEETS_API_BASE_URL: str = "https://sheets.googleapis.com/v4/spreadsheets"
 DATABASE_PATH: str = os.getenv("DATABASE_PATH", "bot.db")
 
 # ---------------------------------------------------------------------------
+# Access control
+# ---------------------------------------------------------------------------
+
+CREATOR_CONTACT: str = os.environ["CREATOR_CONTACT"]
+
+# ---------------------------------------------------------------------------
 # Polling — loaded from polling_config.yaml
 # ---------------------------------------------------------------------------
 

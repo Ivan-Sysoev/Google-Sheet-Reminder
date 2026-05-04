@@ -215,3 +215,4 @@ async def save_snapshot(spreadsheet_id: str, sheets: dict[int, str]) -> None:
             [(spreadsheet_id, sheet_id, title) for sheet_id, title in sheets.items()],
         )
         await db.commit()
+

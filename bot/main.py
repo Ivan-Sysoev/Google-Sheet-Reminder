@@ -14,6 +14,7 @@ from bot.config import BOT_TOKEN
 from bot.db.crud import init_db
 from bot.handlers.callbacks import router as callbacks_router
 from bot.handlers.commands import router as commands_router
+from bot.middleware.access import AccessMiddleware
 from bot.services.polling_service import polling_loop
 
 logging.basicConfig(
@@ -31,6 +32,8 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher(storage=MemoryStorage())
+    dp.message.middleware(AccessMiddleware())
+    dp.callback_query.middleware(AccessMiddleware())
 
     # Callbacks first so inline buttons are handled before fallback text handlers
     dp.include_router(callbacks_router)
